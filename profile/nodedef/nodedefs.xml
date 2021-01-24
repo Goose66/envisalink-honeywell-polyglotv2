@@ -1,0 +1,53 @@
+<nodeDefs>
+  <nodeDef id="CONTROLLER" nls="CTR">
+    <sts>
+      <st id="ST" editor="_2_0" /> <!-- ISY Bool UOM -->
+      <st id="GV1" editor="_2_0" /> <!-- ISY Bool UOM -->
+      <st id="GV20" editor="CTR_LOGLEVEL" />
+	  </sts>
+	  <cmds>
+      <sends />
+      <accepts>
+        <cmd id="QUERY" />
+        <cmd id="UPDATE_PROFILE" />
+        <cmd id="SET_LOGLEVEL">
+          <p id="" editor="CTR_LOGLEVEL" init="GV20" />
+        </cmd>        
+      </accepts>
+    </cmds>
+  </nodeDef>
+  <nodeDef id="PARTITION" nls="APA" >
+    <sts>
+		  <st id="ST" editor="APA_STATE" />
+      <st id="GV0" editor="_2_0" /> <!-- ISY Bool UOM -->
+      <st id="GV1" editor="_2_0" /> <!-- ISY Bool UOM -->
+      <st id="GV2" editor="_2_0" /> <!-- ISY Bool UOM -->
+      <st id="GV5" editor="_2_0" /> <!-- ISY Bool UOM -->
+	 	  <st id="GV6" editor="_2_0" /> <!-- ISY Bool UOM -->
+	    <st id="GV7" editor="_2_0" /> <!-- ISY Bool UOM -->
+	  </sts>
+    <cmds>
+      <sends>
+      	<cmd id="DON" />
+    		<cmd id="DOF" />       
+      </sends>
+      <accepts>
+      	<cmd id="DISARM" />
+    		<cmd id="ARM_AWAY" />
+		  	<cmd id="ARM_STAY" />
+			  <cmd id="ARM_ZEROENTRY" />
+        <cmd id="TOGGLE_CHIME" />
+      </accepts>
+    </cmds>
+  </nodeDef>
+  <nodeDef id="ZONE" nls="AZN">
+    <sts>
+      <st id="ST" editor="AZN_STATE" />
+      <st id="GV1" editor="_58_0" /> <!-- ISY Duration (s) -->
+	  </sts>
+    <cmds>
+      <sends />
+      <accepts />
+    </cmds>
+  </nodeDef>
+</nodeDefs>
