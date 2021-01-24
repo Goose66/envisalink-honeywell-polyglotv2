@@ -4,7 +4,7 @@
     "type": "python3",
     "executable": "envisalink-poly.py",
     "install": "install.sh",
-    "description": "Accesses Honeywell Vista series alarm panels via EnvisaLink EVL-3/4 for ISY access to alarm functions and events.",
+    "description": "Nodeserver for EnvisaLink EVL-3/4 to Honeywell Vista alarm panel. *** PRERELEASE *** for testing only.",
     "notice": "",
     "shortPoll": "30",
     "longPoll": "600",
@@ -13,7 +13,7 @@
             "title": "Envisalink-HW: a Polyglot NodeServer for the EnvisaLink EVL-3/4 device (Honeywell/Ademco)",
             "author": "W. Randy King (Goose66)",
             "version": "0.1.1",
-            "date": "January 22, 2021",
+            "date": "January 24, 2021",
             "source": "https://github.com/Goose66/envisalink-honeywell-polyglotv2",
             "license": "https://github.com/Goose66/envisalink-honeywell-polyglotv2/master/LICENSE"
         }
