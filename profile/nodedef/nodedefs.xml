@@ -43,11 +43,14 @@
   <nodeDef id="ZONE" nls="AZN">
     <sts>
       <st id="ST" editor="AZN_STATE" />
+      <st id="GV0" editor="_2_0" /> <!-- ISY Bool UOM -->
       <st id="GV1" editor="_58_0" /> <!-- ISY Duration (s) -->
 	  </sts>
     <cmds>
       <sends />
-      <accepts />
+      <accepts>
+        <cmd id="BYPASS_ZONE" />      
+      </accepts>
     </cmds>
   </nodeDef>
 </nodeDefs>

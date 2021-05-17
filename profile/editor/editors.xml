@@ -3,9 +3,9 @@
     <range uom="25" subset="0,10,20,30,40,50" nls="IX_CTR_LL" />
   </editor>
   <editor id="AZN_STATE">
-    <range uom="25" subset="0-2" nls="IX_AZN_ST" />
+    <range uom="25" subset="0-3" nls="IX_AZN_ST" />
   </editor>
   <editor id="APA_STATE">
-    <range uom="25" subset="0-7" nls="IX_APA_ST" />
+    <range uom="25" subset="0-10" nls="IX_APA_ST" />
   </editor>
 </editors>

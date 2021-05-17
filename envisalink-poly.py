@@ -6,8 +6,6 @@ import envisalinktpi as EVL
 import polyinterface
 
 # TODO: Test Fire zone and reporitng functionality
-# TODO: Add Zone Bypass command (knowing which partition is challenge) and driver (clearing is the challenge)
-# TODO: Add detection of Alarming status for zones
 # TODO: Add heartbeat from nodeserver
 # TODO: Add shortcut arming (with #)
 # TODO: Process CID events for more information
@@ -29,11 +27,11 @@ _PARM_USER_CODE_NAME = "usercode"
 _PARM_NUM_PARTITIONS_NAME = "numpartitions"
 _PARM_NUM_ZONES_NAME = "numzones"
 _PARM_DISABLE_WATCHDOG_TIMER = "disablewatchdog"
+_PARM_SMART_ZONE_TRACKING = "smartzonetracking"
 
 _DEFAULT_IP_ADDRESS = "0.0.0.0"
 _DEFAULT_PASSWORD = "user"
 _DEFAULT_USER_CODE = "5555"
-_DEFAULT_NUM_PARTITIONS = 1
 _DEFAULT_NUM_ZONES = 8
 
 # values for zonetimerdumpflag in custom configuration'
@@ -53,10 +51,12 @@ _IX_PARTITION_STATE_ARMED_STAY_ZE = 5
 _IX_PARTITION_STATE_ALARMING = 6
 _IX_PARTITION_STATE_DELAY_EXIT = 7
 _IX_PARTITION_STATE_ALARM_IN_MEMORY = 8
+_IX_PARTITION_DOES_NOT_EXIST = 10
 
 _IX_ZONE_STATE_CLOSED = 0
 _IX_ZONE_STATE_OPEN = 1
 _IX_ZONE_STATE_ALARMING = 2
+_IX_ZONE_STATE_UNKNOWN = 3
 
 # Node class for partitions
 class Partition(polyinterface.Node):
@@ -68,10 +68,9 @@ class Partition(polyinterface.Node):
         super(Partition, self).__init__(controller, primary, _PART_ADDR_FORMAT_STRING % partNum, "Partition %1d" % partNum)
         self.partitionNum = partNum
         self.initialBypassZoneDump = False
-        self.readyState = False
         self.alarming = False
 
-    # Update the driver values based on the command received from the EnvisaLink for the partition
+    # Update the driver values based on the partition state received from the EnvisaLink for the partition
     def set_state(self, state):
         
         if state == EVL.PARTITION_STATE_ALARMING:
@@ -82,8 +81,6 @@ class Partition(polyinterface.Node):
 
             # set the status to Alarming
             self.setDriver("ST", _IX_PARTITION_STATE_ALARMING)
-
-            self.readyState = False
 
             return
 
@@ -97,35 +94,83 @@ class Partition(polyinterface.Node):
                 self.alarming = False
 
         if state in (EVL.PARTITION_STATE_READY, EVL.PARTITION_STATE_READY_ZONES_BYPASSED):
-
             self.setDriver("ST", _IX_PARTITION_STATE_READY) # Ready
-            self.readyState = True
-      
-        else:
+            # Note "Zones Bypassed" driver GV1 is handled in LED statusBits processing
 
-            if state == EVL.PARTITION_STATE_NOT_READY:
-                self.setDriver("ST", _IX_PARTITION_STATE_NOT_READY) # Not Ready
+            # if SmartZoneTracking is enabled, spin through the zones for the partition
+            # and manage the state and bypass flags
+            if self.controller.smartZoneTracking:
+                for addr in self.controller.nodes:
+                    node = self.controller.nodes[addr]
+                    if node.id == Zone.id and node.partitionNum == self.partitionNum:
+                        
+                        # if bypassed zones are indicated, then set all non-bypassed zones to closed
+                        if state == EVL.PARTITION_STATE_READY_ZONES_BYPASSED:
+                             if not node.bypass:
+                                node.set_state(_IX_ZONE_STATE_CLOSED)
 
-            elif state == EVL.PARTITION_STATE_ARMED_STAY:
-                self.setDriver("ST", _IX_PARTITION_STATE_ARMED_STAY)
+                        # Otherwise set the state of all zones to closed and clear the bypass flags
+                        else:
+                            node.set_bypass(False)
+                            node.set_state(_IX_ZONE_STATE_CLOSED)
 
-            elif state == EVL.PARTITION_STATE_ARMED_AWAY:
-                self.setDriver("ST", _IX_PARTITION_STATE_ARMED_AWAY)
+        elif state == EVL.PARTITION_STATE_NOT_READY:
+            self.setDriver("ST", _IX_PARTITION_STATE_NOT_READY) # Not Ready
 
-            elif state == EVL.PARTITION_STATE_ARMED_STAY_ZE:
-                self.setDriver("ST", _IX_PARTITION_STATE_ARMED_STAY_ZE)
+        elif state == EVL.PARTITION_STATE_ARMED_STAY:
+            self.setDriver("ST", _IX_PARTITION_STATE_ARMED_STAY)
 
-            elif state == EVL.PARTITION_STATE_ARMED_AWAY_ZE:            
-                self.setDriver("ST", _IX_PARTITION_STATE_ARMED_AWAY_ZE)
+        elif state == EVL.PARTITION_STATE_ARMED_AWAY:
+            self.setDriver("ST", _IX_PARTITION_STATE_ARMED_AWAY)
 
-            elif state == EVL.PARTITION_STATE_EXIT_DELAY:
-                self.setDriver("ST", _IX_PARTITION_STATE_DELAY_EXIT) 
+        elif state == EVL.PARTITION_STATE_ARMED_STAY_ZE:
+            self.setDriver("ST", _IX_PARTITION_STATE_ARMED_STAY_ZE)
 
-            elif state == EVL.PARTITION_STATE_ALARM_IN_MEMORY:
-                self.setDriver("ST", _IX_PARTITION_STATE_ALARM_IN_MEMORY)
+        elif state == EVL.PARTITION_STATE_ARMED_AWAY_ZE:            
+            self.setDriver("ST", _IX_PARTITION_STATE_ARMED_AWAY_ZE)
 
-            self.readyState = False
+        elif state == EVL.PARTITION_STATE_EXIT_DELAY:
+            self.setDriver("ST", _IX_PARTITION_STATE_DELAY_EXIT) 
+
+        elif state == EVL.PARTITION_STATE_ALARM_IN_MEMORY:
+            self.setDriver("ST", _IX_PARTITION_STATE_ALARM_IN_MEMORY)
+
+        elif state == EVL.PARTITION_STATE_DOES_NOT_EXIST:
+            self.setDriver("ST", _IX_PARTITION_DOES_NOT_EXIST) # does not exist
   
+    # Update the driver values based on the statusBits received from the EnvisaLink for keypad updates for partition
+    def set_statuses(self, statusBits):
+        
+        # update the partition flags from the status bits
+        self.setDriver("GV0", int((statusBits & EVL.LED_MASK_CHIME) > 0)) # Chime
+        self.setDriver("GV1", int((statusBits & EVL.LED_MASK_BYPASS) > 0)) # Zone Bypassed
+        self.setDriver("GV2", int((statusBits & EVL.LED_MASK_ALARM_FIRE) > 0)) # Fire Alarm
+        self.setDriver("GV5", int((statusBits & EVL.LED_MASK_LOW_BATTERY) > 0)) # Low Battery
+        self.setDriver("GV6", int((statusBits & EVL.LED_MASK_AC_PRESENT) == 0)) # AC Trouble
+        self.setDriver("GV7", int((statusBits & EVL.LED_MASK_SYS_TROUBLE) > 0)) # System Trouble
+
+
+    # dump bypass zones for the partition
+    def dump_bypass_zones(self):
+
+        # send keys to dump bypass zones
+        if self.controller.envisalink.sendKeys(self.partitionNum, EVL.KEYS_DUMP_BYPASS_ZONES.format(code=self.controller.userCode)):
+
+            # if this is the initial dump of the bypass zones, then spin through and set all the zones for this partition
+            # initially to false and allow the messages from the alarm panel to set the zones back
+            if not self.initialBypassZoneDump:
+                for addr in self.controller.nodes:
+                    node = self.controller.nodes[addr]
+                    if node.id == Zone.id and node.partitionNum == self.partitionNum:
+                        
+                        # clear the bypass state for the zone
+                        node.set_bypass(False)
+            
+            self.initialBypassZoneDump = True
+
+        else:
+            _LOGGER.warning("Call to EnvisaLink to dump bypass zones failed for node %s.", self.address)        
+
     # Arm the partition in Away mode (the listener thread will update the corresponding driver values)
     def arm_away(self, command):
 
@@ -206,25 +251,47 @@ class Zone(polyinterface.Node):
     # Override init to handle partition number
     def __init__(self, controller, primary, zoneNum):
         super(Zone, self).__init__(controller, primary, _ZONE_ADDR_FORMAT_STRING % zoneNum, "Zone %02d" % zoneNum)
-        self.zoneNum = zoneNum       
-
+        self.zoneNum = zoneNum
+        self.partitionNum = 1 # default to partition 1 - only one partition currently supported
+        self.bypass = False # default to false - updates with initial bypass zone dump
+        
     # Set the zone state value
     def set_state(self, state):
         self.setDriver("ST", state)
 
-    # Set the bypasse driver value
+    # Set the bypass driver value from the parameter
     def set_bypass(self, bypass):
-        self.setDriver("GV0", bypass)
+        self.bypass = bypass
+        self.setDriver("GV0", int(self.bypass))
+
+        # if SmartZoneTracking is enabled, then set state of bypassed zone to unknown
+        if bypass and self.controller.smartZoneTracking:
+            self.setDriver("ST", _IX_ZONE_STATE_UNKNOWN)
 
     # Set the zone timer driver value
     def set_timer(self, time):
         self.setDriver("GV1", time)
-        
+
+    # Bypass the zone (assuming partition 1)
+    # Note: this is not a toggle, cleared by disarming partition
+    def bypass_zone(self, command):
+
+        _LOGGER.info("Bypassing zone %d in bypass_zone()...", self.zoneNum)
+
+        # send bypass zone keystrokesdoor chime toggle keystrokes to EnvisaLink device for the partition numner
+        if self.controller.envisalink.sendKeys(self.partitionNum, EVL.KEYS_BYPASS_ZONE.format(code=self.controller.userCode, zone=self.zoneNum)):
+            self.set_bypass(True)
+        else:
+            _LOGGER.warning("Call to EnvisaLink to toggle door chime failed for node %s.", self.address)
+
     drivers = [
         {"driver": "ST", "value": 0, "uom": _ISY_INDEX_UOM},
+        {"driver": "GV0", "value": 0, "uom": _ISY_BOOL_UOM},
         {"driver": "GV1", "value": 327675, "uom": _ISY_SECONDS_UOM},
     ]
-    commands = {}
+    commands = {
+        "BYPASS_ZONE": bypass_zone,
+    }
 
 # Node class for controller
 class Controller(polyinterface.Controller):
@@ -239,6 +306,7 @@ class Controller(polyinterface.Controller):
         self.envisalink = None
         self.userCode = ""
         self.numPartitions = 0
+        self.smartZoneTracking = False
 
     # Update the profile on the ISY
     def cmd_updateProfile(self, command):
@@ -305,7 +373,7 @@ class Controller(polyinterface.Controller):
 
         # if the configuration is not complete, stop the nodeserver
         if not configComplete:
-            self.poly.stop()
+            self.poly.stop() # don't think this is working
             return
 
         else:
@@ -334,63 +402,12 @@ class Controller(polyinterface.Controller):
             self.envisalink.shutdown()
 
             # Update the alarm panel connected status
+            # Note: this is currently not effective because the polyinterface won't accept
+            # any more status changes from the nodeserver
             self.setDriver("GV1", 0, True, True)
 
         # Set the nodeserver status flag to indicate nodeserver is stopped
-        # Note: this is currently not effective
-        self.setDriver("ST", 0, True, True)
-        
-        
-    # called every long_poll seconds
-    def longPoll(self):
-
-        # check for EVL connection
-        if self.envisalink is not None and self.envisalink.connected():
-        
-            # if the EVL's watchdog timer is to be disabled, send a poll command to reset the timer
-            # NOTE: this prevents the EnvisaLink from resetting the connection if it can't communicate with EyezON service
-            if self.disableWDTimer:
-                self.envisalink.sendCommand(EVL.CMD_POLL)
-
-            # Check zone timer dump flag and force a zone timer dump
-            if self.zoneTimerDumpFlag == _ZONE_TIMER_DUMP_LONGPOLL:
-                self.envisalink.sendCommand(EVL.CMD_DUMP_ZONE_TIMERS)
-    
-    # called every short_poll seconds
-    def shortPoll(self):
-
-        # check for existing EnvisaLink connection
-        if self.envisalink is None or not self.envisalink.connected():
-
-            # Setup the interface to the EnvisaLink device and connect (starts the listener thread)
-            self.envisalink = EVL.EnvisaLinkInterface(_LOGGER)
-            
-            _LOGGER.info("Establishing connection to EnvisaLink device...")
-
-            if self.envisalink.connect(self.ip, self.password, self.process_command):
-
-                # clear any prior connection failure notices
-                self.removeNotice("no_connect")
-
-                # set alarm panel connected status
-                self.setDriver("GV1", 1, True, True)
-
-            else:
-                
-                # set alarm panel connected status
-                self.setDriver("GV1", 0, True, True)
-
-                # Format errors
-                _LOGGER.warning("Could not connect to EnvisaLink device at %s.", self.ip)
-                self.addNotice({"no_connect": "Could not connect to EnvisaLink device. Please check the network and configuration parameters and restart the nodeserver."})
-                self.envisalink = None              
-
-        else:
-            
-            # Check zone timer dump flag and force a zone timer dump
-            if self.zoneTimerDumpFlag == _ZONE_TIMER_DUMP_SHORTPOLL:
-                self.envisalink.sendCommand(EVL.CMD_DUMP_ZONE_TIMERS)
-             
+        # self.setDriver("ST", 0)
              
     # Get custom configuration parameter values
     def getCustomParams(self):
@@ -437,28 +454,34 @@ class Controller(polyinterface.Controller):
             customParams.update({_PARM_USER_CODE_NAME: _DEFAULT_USER_CODE})
             complete = False
 
-        # get the optional number of partitions, zones, and command outputs to create nodes for
+        # get the optional number of partitions and zones to create nodes for
         try:
             self.numPartitions = int(customParams[_PARM_NUM_PARTITIONS_NAME])
         except (KeyError, ValueError, TypeError):
-            self.numPartitions = _DEFAULT_NUM_PARTITIONS
+            self.numPartitions = 1 # default to single partition
 
         try:
             self.numZones = int(customParams[_PARM_NUM_ZONES_NAME])
         except (KeyError, ValueError, TypeError):
             self.numZones = _DEFAULT_NUM_ZONES
 
-        # get optional settings for watchdog timer
+        # get optional setting for watchdog timer
         try:
             self.disableWDTimer = (int(customParams[_PARM_DISABLE_WATCHDOG_TIMER]) == 1)
         except (KeyError, ValueError, TypeError):
-            self.disableWDTimer = False
+            self.disableWDTimer = False # default to enabled
         
-        # get optional settings for zone timer dump frequency
+        # get optional setting for zone timer dump frequency
         try:
             self.zoneTimerDumpFlag = int(customParams[_PARM_ZONE_TIMER_DUMP_FLAG])
         except (KeyError, ValueError, TypeError):
             self.zoneTimerDumpFlag = _DEFAULT_ZONE_TIMER_DUMP_FLAG
+
+        # get optional setting for smart zone tracking
+        try:
+            self.smartZoneTracking = bool(int(customParams[_PARM_SMART_ZONE_TRACKING]))
+        except (KeyError, ValueError, TypeError):
+            self.smartZoneTracking = False # default disabled
 
         self.poly.saveCustomParams(customParams)
 
@@ -468,18 +491,86 @@ class Controller(polyinterface.Controller):
     def build_nodes(self, numPartitions, numZones):
 
         # create partition nodes for the number of partitions specified
-        for i in range(0, numPartitions):
+        for i in range(numPartitions):
             
             # create a partition node and add it to the node list
             self.addNode(Partition(self, self.address, i+1))
 
         # create zone nodes for the number of partitions specified
-        for i in range(0, numZones):
+        for i in range(numZones):
             
             # create a partition node and add it to the node list
             self.addNode(Zone(self, self.address, i+1))
 
+        self.setDriver("ST", 0, True, True)
+    
+    # called every short_poll seconds
+    def shortPoll(self):
+
+        # check for existing EnvisaLink connection
+        if self.envisalink is None or not self.envisalink.connected():
+
+            # Setup the interface to the EnvisaLink device and connect (starts the listener thread)
+            self.envisalink = EVL.EnvisaLinkInterface(_LOGGER)
+            
+            _LOGGER.info("Establishing connection to EnvisaLink device...")
+
+            if self.envisalink.connect(self.ip, self.password, self.process_command):
+
+                # clear any prior connection failure notices
+                self.removeNotice("no_connect")
+
+                # set alarm panel connected status
+                self.setDriver("GV1", 1, True, True)
+
+
+            else:
+                
+                # set alarm panel connected status
+                self.setDriver("GV1", 0, True, True)
+
+                # Format errors
+                _LOGGER.warning("Could not connect to EnvisaLink device at %s.", self.ip)
+                self.addNotice({"no_connect": "Could not connect to EnvisaLink device. Please check the network and configuration parameters and restart the nodeserver."})
+                self.envisalink = None              
+
+        else:
+            
+            # perform the bypassed zones dump for each partition on subsequent shortpolls
+            # until they have all been performed
+            skipTimerDump = False
+            for n in range(self.numPartitions):
+                addr = _PART_ADDR_FORMAT_STRING % (n+1)
+                if addr in self.nodes:
+                    part = self.nodes[addr]
+                    if not part.initialBypassZoneDump:
+
+                        _LOGGER.debug("Dumping bypassed zones for partition %s", addr)
+                        part.dump_bypass_zones()
+                        skipTimerDump = True # don't dump timers if a bypass zone dump was performed
+                        break
+    
+            # Check zone timer dump flag and force a zone timer dump
+            if not skipTimerDump and self.zoneTimerDumpFlag == _ZONE_TIMER_DUMP_SHORTPOLL:
+                self.envisalink.sendCommand(EVL.CMD_DUMP_ZONE_TIMERS)
+
+    # called every long_poll seconds
+    def longPoll(self):
+
+        # check for EVL connection
+        if self.envisalink is not None and self.envisalink.connected():
+        
+            # if the EVL's watchdog timer is to be disabled, send a poll command to reset the timer
+            # NOTE: this prevents the EnvisaLink from resetting the connection if it can't communicate with EyezON service
+            if self.disableWDTimer:
+                self.envisalink.sendCommand(EVL.CMD_POLL)
+
+            # Check zone timer dump flag and force a zone timer dump
+            if self.zoneTimerDumpFlag == _ZONE_TIMER_DUMP_LONGPOLL:
+                self.envisalink.sendCommand(EVL.CMD_DUMP_ZONE_TIMERS)     
+
     # Callback function for listener thread
+    # Note: called with data parsed from the EnvisaLink command.
     def process_command(self, cmd, data):
 
         # update the state values from the keypad updates
@@ -500,44 +591,52 @@ class Controller(polyinterface.Controller):
             if (statusBits & EVL.LED_MASK_PARTITION_FLAG) > 0:
 
                 # check if node for partition exists
-                for addr in self.nodes:
-                    if addr == _PART_ADDR_FORMAT_STRING % partNum:
+                addr = _PART_ADDR_FORMAT_STRING % partNum
+                if addr in self.nodes:
+                    partition = self.nodes[addr]
 
-                        partition = self.nodes[addr]
-
-                        # update the partition state (ST driver)
-                        # this is duplicate of statuses reported in CMD_PARTITION_STATE_CHANGE
-                        # so whichever is the most reliable should be used
-                        #partition.set_state(status byte from statusBits)
-
-                        # update the partition flags from the status bits
-                        partition.setDriver("GV0", int((statusBits & EVL.LED_MASK_CHIME) > 0)) # Chime
-                        partition.setDriver("GV1", int((statusBits & EVL.LED_MASK_BYPASS) > 0)) # Zone Bypassed
-                        partition.setDriver("GV2", int((statusBits & EVL.LED_MASK_ALARM_FIRE) > 0)) # Fire Alarm
-                        partition.setDriver("GV5", int((statusBits & EVL.LED_MASK_LOW_BATTERY) > 0)) # Low Battery
-                        partition.setDriver("GV6", int((statusBits & EVL.LED_MASK_AC_PRESENT) == 0)) # AC Trouble
-                        partition.setDriver("GV7", int((statusBits & EVL.LED_MASK_SYS_TROUBLE) > 0)) # System Trouble
-
-                        break
+                    # update the partition state (ST driver)
+                    # this is duplicate of statuses reported in CMD_PARTITION_STATE_CHANGE
+                    # so whichever is the most reliable should be used
+                    partition.set_statuses(statusBits)
 
             # otherwise process zone based information
             else:
                 # look at text1 to determine meaning of update, e.g. "BYPAS ZZ", "ALARM ZZ", "FAULT ZZ"
-                pass
+                status = text1[:5]
+                if status in (EVL.ZONE_STATUS_UPDATE_ALARM, EVL.ZONE_STATUS_UPDATE_BYPASS, EVL.ZONE_STATUS_UPDATE_FAULT):
+                    
+                    # get the zone node for the indicated zone
+                    addr = _ZONE_ADDR_FORMAT_STRING % zoneNum
+                    if addr in self.nodes:
+                        zone = self.nodes[addr]
+
+                        # update the zone state based on the flag
+                        if status == EVL.ZONE_STATUS_UPDATE_ALARM:
+                            zone.set_state(_IX_ZONE_STATE_ALARMING)
+                        
+                        # use the fault message to update the zone state if SmartZoneTracking is enabled
+                        elif status == EVL.ZONE_STATUS_UPDATE_FAULT and self.smartZoneTracking:
+                            zone.set_state(_IX_ZONE_STATE_OPEN)
+                        
+                        elif EVL.ZONE_STATUS_UPDATE_BYPASS:
+                            zone.set_bypass(True)
 
         # process the partition statuses on status change
         elif cmd == EVL.CMD_PARTITION_STATE_CHANGE:
                             
             # spilt the 16 characters of data into 8 individual 2-character hex strings 
-            partStatuses = [data[i:i+2] for i in range(0, len(data), 2)]
+            partStates = [data[i:i+2] for i in range(0, len(data), 2)]
 
             # iterate through the partitions nodes and update the state from the corresponding status value
             for addr in self.nodes:
                 node = self.nodes[addr]
-                if node.id == "PARTITION":
-                    node.set_state(partStatuses[node.partitionNum - 1])
+                if node.id == Partition.id:
+                    node.set_state(partStates[node.partitionNum - 1])
 
         # process the zone statuses on status change
+        # Note: this pretty much only works for open state
+        # Note: this is only if SmartZoneTracking is disabled
         elif cmd == EVL.CMD_ZONE_STATE_CHANGE:
 
             # spilt the 16/32 characters of data into 8/16 individual 2-character hex strings
@@ -553,7 +652,7 @@ class Controller(polyinterface.Controller):
             # iterate through the zone nodes and set the state value the state list
             for addr in self.nodes:
                 node = self.nodes[addr]
-                if node.id == "ZONE":
+                if node.id == Zone.id:
                     node.set_state(zoneStates[node.zoneNum - 1])                   
 
         # if a CID event is sent, log it so that we can add functionality
@@ -571,7 +670,7 @@ class Controller(polyinterface.Controller):
             partNum = int(data[4:6]) # Partition
             zoneNum = int(data[6:9]) # Zone/User Num
 
-            # log the CID code for testing
+            # log the CID code for future functionality
             _LOGGER.info("CID event received from Alarm Panel. Code: %d, Qualifier: %s, Partition: %d, Zone/User: %d", code, data[0:1], partNum, zoneNum)
 
         # handle zone timer dump
@@ -598,7 +697,7 @@ class Controller(polyinterface.Controller):
         else:
             _LOGGER.info("Unhandled command received from EnvisaLink. Command: %s, Data: %s", cmd.decode("ascii"), data)
 
-        # helper method for storing custom data
+    # helper method for storing custom data
     def addCustomData(self, key, data):
 
         # add specififed data to custom data for specified key

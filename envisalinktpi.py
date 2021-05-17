@@ -34,7 +34,7 @@ KEYS_ARM_INSTANT = "{code}7"
 KEYS_TOGGLE_DOOR_CHIME = "{code}9"
 KEYS_DUMP_BYPASS_ZONES = "{code}6*"
 KEYS_DUMP_ZONE_FAULTS = "*"
-KEYS_TOGGLE_ZONE_BYPASS = "{code}6{zone:2d}"
+KEYS_BYPASS_ZONE = "{code}6{zone:02d}"
 
 # Partition States
 # Note: used to evaluate statuses returned in data from listener, so not byte strings
@@ -64,6 +64,11 @@ LED_MASK_AC_PRESENT =       0b0000000000001000
 LED_MASK_ARMED_AWAY =       0b0000000000000100
 LED_MASK_ALARM_IN_MEMORY =  0b0000000000000010
 LED_MASK_ALARMING =         0b0000000000000001
+
+# Text strings for zone status updates in kep
+ZONE_STATUS_UPDATE_BYPASS = "BYPAS"
+ZONE_STATUS_UPDATE_FAULT = "FAULT"
+ZONE_STATUS_UPDATE_ALARM = "ALARM"
 
 # Error codes returned in data for command acknowledgment
 CMD_RESPONSE_CODE_OK = b"00"
